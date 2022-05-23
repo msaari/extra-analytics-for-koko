@@ -15,6 +15,10 @@ namespace extra_analytics_for_koko;
  * Register a custom menu page.
  */
 function add_plugin_menu_page() {
+	if ( ! defined( 'KOKO_ANALYTICS_VERSION' ) ) {
+		return;
+	}
+
 	add_menu_page(
 		__( 'Extra analytics', 'extra_analytics' ),
 		'Extra analytics',
@@ -57,15 +61,6 @@ function get_sub_pages() {
  */
 function plugin_menu_page() {
 	header();
-
-	if ( ! defined( 'KOKO_ANALYTICS_VERSION' ) ) {
-		?>
-		<div class="notice notice-error">
-			<p><?php esc_html_e( 'Koko Analytics is not installed. Please install it first.', 'extra_analytics' ); ?></p>
-		</div>
-		<?php
-		return;
-	}
 
 	echo '<ul>';
 	foreach ( get_sub_pages() as $page_name => $page_slug ) {
