@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Extra Analytics for Koko
  * Description: Provides extra analytics for Koko Analytics
- * Version: 1
+ * Version: 0.1
  * Author: Mikko Saari
  * Author URI: http://www.mikkosaari.fi/
  *
