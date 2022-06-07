@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Extra Analytics for Koko
  * Description: Provides extra analytics for Koko Analytics
- * Version: 0.1
+ * Version: 0.2
  * Author: Mikko Saari
  * Author URI: http://www.mikkosaari.fi/
  *
@@ -52,6 +52,7 @@ function get_sub_pages() {
 		__( 'Terms', 'extra_analytics' )      => 'term_stats',
 		__( 'Years', 'extra_analytics' )      => 'year_stats',
 		__( 'Post types', 'extra_analytics' ) => 'post_type_stats',
+		__( 'Zero hits', 'extra_analytics' )  => 'zero_hits',
 	);
 	return $sub_pages;
 }
@@ -178,23 +179,21 @@ function term_stats() {
 		'objects'
 	);
 
+	$select = __( 'Select', 'extra_analytics' );
+	$label  = __( 'Choose taxonomy:', 'extra_analytics' );
+
 	$html .= <<<EOH
 <form method="get">
 <input type="hidden" name="page" value="extra_analytics_term_stats" />
-<label for="taxonomy">
-EOH;
-	$html .= __( 'Choose taxonomy:', 'extra_analytics' );
-	$html .= <<<EOH
-</label>
+<label for="taxonomy">$label</label>
 <select name="taxonomy">
 EOH;
-
 	foreach ( $taxonomies as $taxonomy_term ) {
 		$html .= '<option value="' . esc_attr( $taxonomy_term->name ) . '" ' . selected( $taxonomy_term->name, $taxonomy, false ) . '>' . esc_html( $taxonomy_term->label ) . '</option>';
 	}
 	$html .= <<<EOH
 </select>
-<input type="submit" value="Select" />
+<input type="submit" value="$select" />
 </form>
 EOH;
 
@@ -366,6 +365,124 @@ function post_type_stats() {
 }
 
 /**
+ * Display posts with zero hits.
+ */
+function zero_hits() {
+	header();
+
+	$page    = isset( $_GET['paged'] ) ? absint( $_GET['paged'] ) : 1; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+	$orderby = isset( $_GET['orderby'] ) ? $_GET['orderby'] : 'post_date'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+
+	if ( 'post_title' !== $orderby ) {
+		$orderby = 'post_date';
+	}
+
+	/**
+	 * Filters the post types included in the search.
+	 *
+	 * $param array $post_types The post types, defaults to public post types.
+	 */
+	$post_types = apply_filters(
+		'extra_analytics_zero_hits_post_types',
+		get_post_types( array( 'public' => true ) )
+	);
+
+	$transient = 'extra_analytics_zero_hits_' . $orderby . '_' . $page;
+	$html      = get_transient( $transient );
+	if (  $html ) {
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		footer();
+		return;
+	}
+
+	$offset = ( $page - 1 ) * 25;
+	if ( $offset > 0 ) {
+		$offset = 'OFFSET ' . $offset;
+	} else {
+		$offset = '';
+	}
+
+	$order = 'post_title' === $orderby ? 'post_title ASC' : 'post_date DESC';
+
+	$html = '';
+
+	global $wpdb;
+
+	$sql = "SELECT ID, post_title
+	FROM $wpdb->posts
+	WHERE ID NOT IN
+		(SELECT id FROM wp_zoner_koko_analytics_post_stats)
+		AND post_status='publish'
+		AND post_type IN ('post', 'page')
+	ORDER BY $order
+	LIMIT 25 $offset";
+
+	$results = $wpdb->get_results( $sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+
+	$label      = __( 'Order by:', 'extra_analytics' );
+	$date_text  = __( 'Post date descending', 'extra_analytics' );
+	$alpha_text = __( 'Post title ascending', 'extra_analytics' );
+	$select     = __( 'Select', 'extra_analytics' );
+
+	$date_selected  = 'post_date' === $orderby ? '' : 'selected';
+	$alpha_selected = 'post_title' === $orderby ? 'selected' : '';
+
+	$html .= '<h2>' . esc_html__( 'Posts with zero hits', 'extra_analytics' ) . '</h2>';
+
+	$html .= <<<EOH
+	<form method="get">
+	<input type="hidden" name="page" value="extra_analytics_zero_hits" />
+	<label for="orderby">$label</label>
+	<select name="orderby">
+		<option value="post_date" $date_selected>$date_text</option>
+		<option value="post_title" $alpha_selected>$alpha_text</option>
+	</select>
+	<input type="submit" value="$select" />
+	</form>
+	EOH;
+
+	if ( $page > 1 ) {
+		$html .= prev_page(
+			array(
+				'page'    => 'extra_analytics_zero_hits',
+				'orderby' => $orderby,
+			),
+			$page
+		);
+	}
+	if ( count( $results ) === 25 ) {
+		$html .= next_page(
+			array(
+				'page'    => 'extra_analytics_zero_hits',
+				'orderby' => $orderby,
+			),
+			$page
+		);
+	}
+
+	$html .= '<table class="widefat">';
+	$html .= '<thead><tr><th>'
+		. esc_html__( 'Post', 'extra_analytics' ) . '</th><th>'
+		. esc_html__( 'Date', 'extra_analytics' ) . '</th></tr></thead>';
+	foreach ( $results as $row ) {
+		$html .= '<tr>';
+		$html .= '<td><span class="row-title"><a href="' . esc_url( get_edit_post_link( $row->ID ) ) . '">'
+		. esc_html( get_the_title( $row->ID ) ) . '</a></span> ';
+		$html .= '<div class="row-actions">';
+		$html .= '<a href="' . esc_url( get_permalink( $row->ID ) ) . '">' . __( 'View' ) . '</a></div></td>';
+		$html .= '<td>' . esc_html( get_the_date( '', $row->ID ) ) . '</td>';
+		$html .= '</tr>';
+	}
+	$html .= '</table>';
+
+	echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+
+	set_transient( $transient, $html, HOUR_IN_SECONDS );
+
+	footer();
+}
+
+/**
  * Return the link style for prev/next page links.
  *
  * @return string CSS inline style.
@@ -397,9 +514,12 @@ function next_page( $args, $page ) {
 		return '';
 	}
 
-	$url = 'admin.php?page=' . $args['page'] . '&paged=' . ( $page + 1 );
-	if ( isset( $args['taxonomy'] ) ) {
-		$url .= '&taxonomy=' . $args['taxonomy'];
+	$url      = 'admin.php?page=' . $args['page'] . '&paged=' . ( $page + 1 );
+	$arg_list = array( 'taxonomy', 'orderby' );
+	foreach ( $arg_list as $arg ) {
+		if ( isset( $args[ $arg ] ) ) {
+			$url .= '&' . $arg . '=' . $args[ $arg ];
+		}
 	}
 
 	return '<a style="' . get_link_style() . '" href="' . esc_url( admin_url( $url ) ) . '">' . esc_html__( 'Next page', 'extra_analytics' ) . '</a>';
@@ -419,9 +539,12 @@ function prev_page( $args, $page ) {
 		return '';
 	}
 
-	$url = 'admin.php?page=' . $args['page'] . '&paged=' . ( $page - 1 );
-	if ( isset( $args['taxonomy'] ) ) {
-		$url .= '&taxonomy=' . $args['taxonomy'];
+	$url      = 'admin.php?page=' . $args['page'] . '&paged=' . ( $page - 1 );
+	$arg_list = array( 'taxonomy', 'orderby' );
+	foreach ( $arg_list as $arg ) {
+		if ( isset( $args[ $arg ] ) ) {
+			$url .= '&' . $arg . '=' . $args[ $arg ];
+		}
 	}
 
 	return '<a style="' . get_link_style() . '" href="' . esc_url( admin_url( $url ) ) . '">' . esc_html__( 'Previous page', 'extra_analytics' ) . '</a>';
